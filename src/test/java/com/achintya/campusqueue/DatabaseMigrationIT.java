@@ -54,7 +54,7 @@ class DatabaseMigrationIT extends PostgresIntegrationTestSupport {
         assertThatThrownBy(() -> jdbcTemplate.update(
                         "insert into registration "
                                 + "(id, workshop_id, student_id, status, created_at, updated_at) "
-                                + "values (?, ?, ?, 'WAITLISTED', now(), now())",
+                                + "values (?, ?, ?, 'CONFIRMED', now(), now())",
                         UUID.randomUUID(),
                         workshopId,
                         studentId))
