@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: campus-queue
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/campusqueue}
+    username: ${DB_USERNAME:campusqueue}
+    password: ${DB_PASSWORD:campusqueue}
+  flyway:
+    enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  jackson:
+    time-zone: UTC
+
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+
+campusqueue:
+  jwt:
+    secret: ${JWT_SECRET:local-development-secret-change-me-32-bytes}
+    ttl: ${JWT_TTL:PT1H}

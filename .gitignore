@@ -1,9 +1,12 @@
 build/
 out/
 bin/
+target/
 *.class
 .idea/
 *.iml
 *.log
+.env
+.superpowers/
 
 

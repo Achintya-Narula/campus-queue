@@ -16,5 +16,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - run: bash scripts/test.sh
+          cache: maven
+      - run: chmod +x mvnw
+      - run: ./mvnw --batch-mode verify
 
