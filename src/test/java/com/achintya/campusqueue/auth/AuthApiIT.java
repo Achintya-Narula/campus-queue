@@ -122,8 +122,7 @@ class AuthApiIT extends PostgresIntegrationTestSupport {
         assertUnauthorized("not-a-jwt");
 
         String validToken = registerStudent();
-        char replacement = validToken.endsWith("a") ? 'b' : 'a';
-        assertUnauthorized(validToken.substring(0, validToken.length() - 1) + replacement);
+        assertUnauthorized(tamperSignature(validToken));
 
         Instant now = Instant.now();
         JwtClaimsSet expiredClaims = JwtClaimsSet.builder()
@@ -176,5 +175,12 @@ class AuthApiIT extends PostgresIntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.path").value("/api/v1/private-probe"))
                 .andExpect(jsonPath("$.stackTrace").doesNotExist());
+    }
+
+    private String tamperSignature(String token) {
+        String[] segments = token.split("\\.");
+        char replacement = segments[2].charAt(0) == 'a' ? 'b' : 'a';
+        segments[2] = replacement + segments[2].substring(1);
+        return String.join(".", segments);
     }
 }
