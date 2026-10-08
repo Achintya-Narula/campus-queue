@@ -2,6 +2,7 @@ package com.achintya.campusqueue.registration;
 
 import com.achintya.campusqueue.common.error.ConflictException;
 import com.achintya.campusqueue.common.error.NotFoundException;
+import com.achintya.campusqueue.registration.dto.CancellationResponse;
 import com.achintya.campusqueue.registration.dto.RegistrationResponse;
 import com.achintya.campusqueue.user.UserEntity;
 import com.achintya.campusqueue.user.UserRepository;
@@ -80,6 +81,34 @@ public class RegistrationService {
                 .map(this::toResponse);
     }
 
+    @Transactional
+    public CancellationResponse cancel(UUID studentId, UUID workshopId) {
+        workshopRepository.findByIdForUpdate(workshopId)
+                .orElseThrow(() -> new NotFoundException("WORKSHOP_NOT_FOUND", "Workshop was not found"));
+        RegistrationEntity registration = registrationRepository
+                .findByWorkshop_IdAndStudent_Id(workshopId, studentId)
+                .orElseThrow(this::registrationNotActive);
+        if (registration.getStatus() == RegistrationStatus.CANCELLED) {
+            throw registrationNotActive();
+        }
+
+        RegistrationStatus previousStatus = registration.getStatus();
+        registration.cancel(Instant.now(clock));
+        UUID promotedRegistrationId = null;
+        if (previousStatus == RegistrationStatus.CONFIRMED) {
+            RegistrationEntity promoted = registrationRepository
+                    .findFirstByWorkshop_IdAndStatusOrderByWaitlistSequenceAsc(
+                            workshopId, RegistrationStatus.WAITLISTED)
+                    .orElse(null);
+            if (promoted != null) {
+                promoted.confirm(Instant.now(clock));
+                promotedRegistrationId = promoted.getId();
+            }
+        }
+        registrationRepository.flush();
+        return new CancellationResponse(registration.getId(), previousStatus, promotedRegistrationId);
+    }
+
     private RegistrationResponse toResponse(RegistrationEntity registration) {
         Long queuePosition = null;
         if (registration.getStatus() == RegistrationStatus.WAITLISTED) {
@@ -90,5 +119,11 @@ public class RegistrationService {
                             registration.getWaitlistSequence());
         }
         return RegistrationResponse.from(registration, queuePosition);
+    }
+
+    private ConflictException registrationNotActive() {
+        return new ConflictException(
+                "REGISTRATION_NOT_ACTIVE",
+                "Student does not have an active registration for this workshop");
     }
 }

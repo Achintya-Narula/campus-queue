@@ -1,5 +1,6 @@
 package com.achintya.campusqueue.registration;
 
+import com.achintya.campusqueue.registration.dto.CancellationResponse;
 import com.achintya.campusqueue.registration.dto.RegistrationResponse;
 import java.net.URI;
 import java.util.UUID;
@@ -9,6 +10,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +39,13 @@ public class RegistrationController {
             @AuthenticationPrincipal Jwt jwt,
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
         return registrationService.listForStudent(subject(jwt), pageable);
+    }
+
+    @DeleteMapping("/api/v1/workshops/{workshopId}/registrations/me")
+    CancellationResponse cancel(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID workshopId) {
+        return registrationService.cancel(subject(jwt), workshopId);
     }
 
     private UUID subject(Jwt jwt) {
