@@ -1,0 +1,82 @@
+@baseUrl = http://localhost:8080
+@organizerToken = paste-organizer-jwt-here
+@studentToken = paste-student-jwt-here
+@workshopId = paste-workshop-uuid-here
+
+### Register an organizer
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "organizer@example.com",
+  "password": "strong-pass-123",
+  "role": "ORGANIZER"
+}
+
+### Register a student
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "student@example.com",
+  "password": "strong-pass-123",
+  "role": "STUDENT"
+}
+
+### Login (copy the returned token into the matching variable above)
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "organizer@example.com",
+  "password": "strong-pass-123"
+}
+
+### Create a draft workshop (copy the returned id into workshopId)
+POST {{baseUrl}}/api/v1/organizer/workshops
+Authorization: Bearer {{organizerToken}}
+Content-Type: application/json
+
+{
+  "title": "Backend Concurrency Lab",
+  "description": "Hands-on PostgreSQL transactions and row locking",
+  "capacity": 3
+}
+
+### Edit workshop details or capacity
+PUT {{baseUrl}}/api/v1/organizer/workshops/{{workshopId}}
+Authorization: Bearer {{organizerToken}}
+Content-Type: application/json
+
+{
+  "title": "Backend Concurrency Lab",
+  "description": "PostgreSQL transactions, locking, and FIFO waitlists",
+  "capacity": 5
+}
+
+### Publish the workshop
+POST {{baseUrl}}/api/v1/organizer/workshops/{{workshopId}}/publish
+Authorization: Bearer {{organizerToken}}
+
+### Search published workshops
+GET {{baseUrl}}/api/v1/workshops?q=postgresql&page=0&size=20
+
+### Register the authenticated student
+POST {{baseUrl}}/api/v1/workshops/{{workshopId}}/registrations
+Authorization: Bearer {{studentToken}}
+
+### List the authenticated student's registrations
+GET {{baseUrl}}/api/v1/me/registrations?page=0&size=20
+Authorization: Bearer {{studentToken}}
+
+### View the owner-only roster
+GET {{baseUrl}}/api/v1/organizer/workshops/{{workshopId}}/roster
+Authorization: Bearer {{organizerToken}}
+
+### Cancel the authenticated student's registration
+DELETE {{baseUrl}}/api/v1/workshops/{{workshopId}}/registrations/me
+Authorization: Bearer {{studentToken}}
+
+### Cancel the workshop and every active registration
+POST {{baseUrl}}/api/v1/organizer/workshops/{{workshopId}}/cancel
+Authorization: Bearer {{organizerToken}}
