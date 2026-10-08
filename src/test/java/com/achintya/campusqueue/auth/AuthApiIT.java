@@ -136,6 +136,18 @@ class AuthApiIT extends PostgresIntegrationTestSupport {
                         JwsHeader.with(MacAlgorithm.HS256).build(), expiredClaims))
                 .getTokenValue();
         assertUnauthorized(expiredToken);
+
+        JwtClaimsSet wrongIssuerClaims = JwtClaimsSet.builder()
+                .issuer("different-service")
+                .subject(UUID.randomUUID().toString())
+                .issuedAt(now)
+                .expiresAt(now.plus(1, ChronoUnit.HOURS))
+                .claim("role", "STUDENT")
+                .build();
+        String wrongIssuerToken = jwtEncoder.encode(JwtEncoderParameters.from(
+                        JwsHeader.with(MacAlgorithm.HS256).build(), wrongIssuerClaims))
+                .getTokenValue();
+        assertUnauthorized(wrongIssuerToken);
     }
 
     @Test
