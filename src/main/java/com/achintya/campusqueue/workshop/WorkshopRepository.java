@@ -16,6 +16,18 @@ public interface WorkshopRepository extends JpaRepository<WorkshopEntity, UUID> 
 
     Page<WorkshopEntity> findAllByStatus(WorkshopStatus status, Pageable pageable);
 
+    @Query("""
+            select w from WorkshopEntity w
+            where w.status = :status
+              and (:query = ''
+                   or lower(w.title) like lower(concat('%', :query, '%'))
+                   or lower(w.description) like lower(concat('%', :query, '%')))
+            """)
+    Page<WorkshopEntity> searchByStatus(
+            @Param("status") WorkshopStatus status,
+            @Param("query") String query,
+            Pageable pageable);
+
     Page<WorkshopEntity> findAllByOrganizerId(UUID organizerId, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

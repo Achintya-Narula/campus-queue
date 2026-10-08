@@ -94,8 +94,10 @@ public class WorkshopService {
     }
 
     @Transactional(readOnly = true)
-    public Page<WorkshopResponse> listPublished(Pageable pageable) {
-        return workshopRepository.findAllByStatus(WorkshopStatus.PUBLISHED, pageable)
+    public Page<WorkshopResponse> listPublished(String query, Pageable pageable) {
+        String normalizedQuery = query == null ? "" : query.trim();
+        return workshopRepository.searchByStatus(
+                        WorkshopStatus.PUBLISHED, normalizedQuery, pageable)
                 .map(WorkshopResponse::from);
     }
 
