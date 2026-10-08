@@ -3,6 +3,7 @@ package com.achintya.campusqueue.workshop;
 import com.achintya.campusqueue.workshop.dto.CreateWorkshopRequest;
 import com.achintya.campusqueue.workshop.dto.UpdateWorkshopRequest;
 import com.achintya.campusqueue.workshop.dto.WorkshopResponse;
+import com.achintya.campusqueue.registration.dto.WorkshopRosterResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.UUID;
@@ -58,6 +59,20 @@ public class OrganizerWorkshopController {
             @AuthenticationPrincipal Jwt jwt,
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
         return workshopService.listOwned(subject(jwt), pageable);
+    }
+
+    @GetMapping("/{workshopId}/roster")
+    WorkshopRosterResponse getRoster(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID workshopId) {
+        return workshopService.getRoster(subject(jwt), workshopId);
+    }
+
+    @PostMapping("/{workshopId}/cancel")
+    WorkshopResponse cancel(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID workshopId) {
+        return workshopService.cancel(subject(jwt), workshopId);
     }
 
     private UUID subject(Jwt jwt) {
