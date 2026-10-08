@@ -1,138 +1,216 @@
 # CampusQueue
 
-A Java 17 REST API for limited-capacity university workshops. When a workshop fills, students join a FIFO waitlist; cancelling a confirmed registration promotes the earliest waiting student.
+CampusQueue is a Spring Boot REST API for limited-capacity university workshops. Organizers manage workshop lifecycles and rosters; students receive a confirmed seat or enter a deterministic FIFO waitlist. Cancellations and registrations remain capacity-safe under concurrent requests because PostgreSQL—not a JVM-only lock—is the serialization boundary.
 
-This deadline MVP deliberately uses only JDK APIs. That keeps the concurrency and queue logic small enough to understand and test before migrating the adapters to Spring Boot and PostgreSQL.
+## Verified project facts
 
-## What it demonstrates
+- Java 17, Spring Boot 3.5, Spring Security, JPA/Hibernate, Flyway, and PostgreSQL 17.
+- JWT registration/login with BCrypt password hashing and role-based authorization.
+- Database-backed capacity enforcement, FIFO waitlisting, cancellation, and automatic promotion.
+- Owner-only organizer controls for capacity, rosters, publishing, and cancellation.
+- Published-only, case-insensitive workshop search with bounded pagination.
+- OpenAPI JSON and Swagger UI, Docker Compose, and a non-root runtime image.
+- **28 integration tests** passed in GitHub Actions against a real PostgreSQL Testcontainer.
+- The concurrency scenario ran five times; each run processed 20 students over eight threads and produced exactly **3 confirmed + 17 waitlisted** registrations for a capacity-three workshop.
 
-- Java records, enums, collections, validation, and exceptions
-- Role checks for student and organizer operations
-- REST endpoints built with the JDK HTTP server
-- Capacity enforcement under concurrent registrations
-- Fair FIFO waitlist positions
-- Atomic cancellation and promotion inside a per-workshop lock
-- Duplicate-registration prevention
-- Structured JSON error responses
-- Real HTTP integration tests using `HttpClient`
+The verified implementation is on `feat/campusqueue-v2`. The original dependency-free prototype remains available at commit [`da512f1`](https://github.com/Achintya-Narula/campus-queue/tree/da512f1d03b219c931a365fec956c8aa3de1e1c0).
 
-## Run
+## Architecture
 
-Requirements: JDK 17 or newer.
-
-```bash
-bash scripts/test.sh
-bash scripts/run.sh
+```mermaid
+flowchart LR
+    Client[HTTP client] --> API[Spring MVC controllers]
+    API --> Security[JWT and role checks]
+    Security --> Services[Transactional services]
+    Services --> JPA[Spring Data JPA]
+    JPA --> DB[(PostgreSQL 17)]
+    Flyway[Flyway migrations] --> DB
 ```
 
-The API starts at `http://127.0.0.1:8080`. Set `PORT` to use another port.
+Controllers accept HTTP input and derive identity from the signed JWT subject. Services own lifecycle, ownership, capacity, and queue rules. Repositories provide persistence and the pessimistic workshop-row lock. Flyway owns the schema; Hibernate validates it at startup rather than creating it.
 
-### Windows PowerShell
+### Data model
 
-Run the same Bash scripts from Git Bash, or use the JDK directly from PowerShell:
+```mermaid
+erDiagram
+    APP_USER ||--o{ WORKSHOP : organizes
+    APP_USER ||--o{ REGISTRATION : submits
+    WORKSHOP ||--o{ REGISTRATION : contains
 
-```powershell
-New-Item -ItemType Directory -Force build\classes, build\test-classes | Out-Null
-$main = Get-ChildItem -Recurse src\main\java -Filter *.java | ForEach-Object FullName
-javac -d build\classes $main
-$tests = Get-ChildItem -Recurse src\test\java -Filter *.java | ForEach-Object FullName
-javac -cp build\classes -d build\test-classes $tests
-java -cp "build\classes;build\test-classes" dev.achu.campusqueue.JsonTest
-java -cp "build\classes;build\test-classes" dev.achu.campusqueue.CampusQueueServiceTest
-java -cp "build\classes;build\test-classes" dev.achu.campusqueue.CampusQueueHttpServerTest
-java -cp build\classes dev.achu.campusqueue.Main
+    APP_USER {
+        uuid id PK
+        varchar email UK
+        varchar password_hash
+        varchar role
+        timestamptz created_at
+    }
+    WORKSHOP {
+        uuid id PK
+        uuid organizer_id FK
+        varchar title
+        integer capacity
+        varchar status
+        bigint next_waitlist_sequence
+    }
+    REGISTRATION {
+        uuid id PK
+        uuid workshop_id FK
+        uuid student_id FK
+        varchar status
+        bigint waitlist_sequence
+    }
 ```
 
-## API
+The database enforces one row per workshop/student pair. Waitlisted rows must have a positive sequence; confirmed and cancelled rows must not have one.
 
-Create an organizer:
-
-```bash
-curl -s http://127.0.0.1:8080/api/users \
-  -H 'content-type: application/json' \
-  -d '{"email":"organizer@example.com","role":"ORGANIZER"}'
-```
-
-Create and publish a workshop using the returned IDs:
-
-```bash
-curl -s http://127.0.0.1:8080/api/workshops \
-  -H 'content-type: application/json' \
-  -d '{"organizerId":"ORGANIZER_UUID","title":"Backend Workshop","capacity":2}'
-
-curl -s http://127.0.0.1:8080/api/workshops/WORKSHOP_UUID/publish \
-  -H 'content-type: application/json' \
-  -d '{"organizerId":"ORGANIZER_UUID"}'
-```
-
-Register a student:
-
-```bash
-curl -s http://127.0.0.1:8080/api/workshops/WORKSHOP_UUID/registrations \
-  -H 'content-type: application/json' \
-  -d '{"studentId":"STUDENT_UUID"}'
-```
-
-Cancel a registration and trigger promotion:
-
-```bash
-curl -s -X DELETE http://127.0.0.1:8080/api/workshops/WORKSHOP_UUID/registrations \
-  -H 'content-type: application/json' \
-  -d '{"studentId":"STUDENT_UUID"}'
-```
-
-Other routes:
-
-| Method | Route | Purpose |
-| --- | --- | --- |
-| GET | `/api/workshops` | List published, active workshops |
-| GET | `/api/workshops/:id` | Inspect capacity and queue state |
-| POST | `/api/workshops/:id/cancel` | Cancel as the owning organizer |
-
-## Test
-
-Run all 25 tests using Bash or PowerShell:
-
-```bash
-bash scripts/test.sh
-```
-
-Or in PowerShell:
-
-```powershell
-java -cp "build\classes;build\test-classes" dev.achu.campusqueue.JsonTest
-java -cp "build\classes;build\test-classes" dev.achu.campusqueue.CampusQueueServiceTest
-java -cp "build\classes;build\test-classes" dev.achu.campusqueue.CampusQueueHttpServerTest
-```
-
-The 25-test suite covers:
-- **JSON Parser & Serializer (`JsonTest` - 6 tests)**: Flat object parsing, typed values (strings, numbers, booleans, null), unescaping quotes and newlines, malformed body rejection, and model serialization.
-- **Service Domain Logic (`CampusQueueServiceTest` - 12 tests)**: Capacity limits, FIFO waitlist positions, duplicate registration prevention, role authorization, cancellation promotion, waitlist queue stability after middle cancellation, seat reuse after cancellation, lifecycle state transitions (draft/published/cancelled), owner-only controls, input validation, workshop listing filters, and concurrent registration/cancellation thread safety.
-- **HTTP Server Integration (`CampusQueueHttpServerTest` - 7 tests)**: Real HTTP requests against JDK HTTP server for all REST routes, HTTP registration and promotion via `DELETE`, workshop details and cancellation via `POST`, 404 routing for invalid subpaths and methods, structured 400 validation error responses, and HTTP response security headers (`nosniff`, `no-store`).
-
-## Concurrency decision
-
-Each workshop owns a fair `ReentrantLock`. Registration checks for duplicates, checks confirmed count, and appends to the waitlist while holding that lock. Cancellation removes a registration and promotes with `pollFirst()` before releasing it. The concurrency test sends 20 registrations through eight threads to a capacity-three workshop and asserts exactly three confirmations plus 17 unique waitlist positions.
-
-## Registration flow
+## Registration transaction
 
 ```mermaid
 flowchart TD
-    REQUEST[Registration request] --> LOCK[Acquire workshop lock]
-    LOCK --> DUP{Already registered?}
-    DUP -->|Yes| REJECT[Reject duplicate]
-    DUP -->|No| CAPACITY{Seat available?}
-    CAPACITY -->|Yes| CONFIRM[Confirm registration]
-    CAPACITY -->|No| WAITLIST[Append to FIFO waitlist]
+    Start[Registration request] --> Lock[Lock workshop row]
+    Lock --> Open{Published?}
+    Open -->|No| RejectClosed[Reject as not open]
+    Open -->|Yes| Active{Active row exists?}
+    Active -->|Yes| RejectDuplicate[Reject duplicate]
+    Active -->|No| Seat{Confirmed count below capacity?}
+    Seat -->|Yes| Confirm[Confirm seat]
+    Seat -->|No| Sequence[Allocate next sequence]
+    Sequence --> Waitlist[Create or reactivate waitlist row]
 ```
 
-`CampusQueueHttpServer` is the HTTP adapter; `CampusQueueService` owns validation, role checks, capacity, and queue behavior. Keeping those boundaries separate makes the domain easy to test and later replace with Spring Boot controllers and PostgreSQL repositories.
+`PESSIMISTIC_WRITE` on the workshop row is the single serialization point for enrollment, student cancellation, capacity changes, and workshop cancellation. A confirmed cancellation promotes the smallest active waitlist sequence in the same transaction. This keeps multiple application instances consistent without `ReentrantLock`, Redis, or retry-based overbooking repair.
 
-## Honest limitations and next iteration
+## Run with Docker Compose
 
-- State is in memory and resets when the process stops.
-- Users are identified by UUID in this MVP; authentication is not implemented here.
-- The JSON reader intentionally supports the flat request objects used by this API, not arbitrary JSON.
-- The next iteration will move persistence to PostgreSQL, use database row locks and unique constraints, and add Spring Security with JWT authentication.
+Requirements: Docker Desktop or Docker Engine with Compose.
 
-These limitations are not hidden: the project is a tested domain-first increment rather than a pretend production deployment.
+### Bash
+
+```bash
+cp .env.example .env
+# Replace POSTGRES_PASSWORD and JWT_SECRET in .env before shared or deployed use.
+docker compose up --build
+```
+
+### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env
+# Edit .env and replace POSTGRES_PASSWORD and JWT_SECRET.
+docker compose up --build
+```
+
+The API starts at `http://localhost:8080`.
+
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+- Stop services: `docker compose down`
+- Stop services and delete local database data: `docker compose down --volumes`
+
+The last command is destructive because it removes the named PostgreSQL volume.
+
+## Run from source
+
+Requirements: JDK 17, PostgreSQL 17, and Docker for the Testcontainers suite.
+
+### Bash
+
+```bash
+export DB_URL='jdbc:postgresql://localhost:5432/campusqueue'
+export DB_USERNAME='campusqueue'
+export DB_PASSWORD='your-local-password'
+export JWT_SECRET='replace-with-a-random-secret-containing-at-least-32-bytes'
+export JWT_TTL='PT1H'
+./mvnw spring-boot:run
+```
+
+### Windows PowerShell
+
+```powershell
+$env:DB_URL = 'jdbc:postgresql://localhost:5432/campusqueue'
+$env:DB_USERNAME = 'campusqueue'
+$env:DB_PASSWORD = 'your-local-password'
+$env:JWT_SECRET = 'replace-with-a-random-secret-containing-at-least-32-bytes'
+$env:JWT_TTL = 'PT1H'
+.\mvnw.cmd spring-boot:run
+```
+
+Flyway applies `V1__create_campusqueue_schema.sql` automatically. The application fails startup if Hibernate detects a schema mismatch.
+
+## Configuration
+
+| Variable | Purpose | Local default |
+| --- | --- | --- |
+| `DB_URL` | PostgreSQL JDBC URL | `jdbc:postgresql://localhost:5432/campusqueue` |
+| `DB_USERNAME` | Database user | `campusqueue` |
+| `DB_PASSWORD` | Database password | `campusqueue` |
+| `JWT_SECRET` | HS256 signing secret; minimum 32 UTF-8 bytes | Development placeholder |
+| `JWT_TTL` | Token lifetime as an ISO-8601 duration | `PT1H` |
+| `API_PORT` | Host port used by Compose | `8080` |
+
+Never commit a real password, JWT secret, `.env` file, or access token. The checked-in `.env.example` contains placeholders only.
+
+## API overview
+
+| Method | Route | Access | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/auth/register` | Public | Create a student or organizer account |
+| `POST` | `/api/v1/auth/login` | Public | Obtain a JWT |
+| `GET` | `/api/v1/workshops?q=&page=0&size=20` | Public | Search published workshops |
+| `GET` | `/api/v1/workshops/{workshopId}` | Public | Read one published workshop |
+| `POST` | `/api/v1/organizer/workshops` | Organizer | Create a draft workshop |
+| `PUT` | `/api/v1/organizer/workshops/{workshopId}` | Owner | Edit details or capacity |
+| `POST` | `/api/v1/organizer/workshops/{workshopId}/publish` | Owner | Publish a draft |
+| `GET` | `/api/v1/organizer/workshops/{workshopId}/roster` | Owner | View confirmed and FIFO waitlisted students |
+| `POST` | `/api/v1/organizer/workshops/{workshopId}/cancel` | Owner | Cancel workshop and active registrations |
+| `POST` | `/api/v1/workshops/{workshopId}/registrations` | Student | Confirm or join waitlist |
+| `DELETE` | `/api/v1/workshops/{workshopId}/registrations/me` | Student | Cancel own registration and trigger promotion |
+| `GET` | `/api/v1/me/registrations` | Student | List only the authenticated student's records |
+
+Copy-pasteable requests are in [`docs/api-examples.http`](docs/api-examples.http). Student and organizer IDs are never accepted from management/enrollment request bodies; identity comes from the JWT.
+
+## Test evidence
+
+Run the same verification command used in CI:
+
+```bash
+./mvnw clean verify
+```
+
+```powershell
+.\mvnw.cmd clean verify
+```
+
+The integration suite requires a running Docker daemon because Testcontainers starts PostgreSQL 17. The 28 verified tests cover:
+
+| Area | Tests | Evidence |
+| --- | ---: | --- |
+| Authentication and API errors | 5 | BCrypt, normalization, JWT success/failure, safe 401/403 |
+| Flyway migration | 1 | Real PostgreSQL schema and uniqueness/check constraints |
+| Workshop lifecycle | 4 | Create, edit, publish, ownership, visibility, validation |
+| Enrollment | 4 | Capacity, FIFO position, identity isolation, reactivation |
+| Student cancellation | 2 | Atomic cancellation, promotion, repeat handling |
+| Organizer management | 3 | Capacity floor, roster privacy/order, workshop cancellation |
+| Concurrency | 6 | Five 20-student repetitions plus mixed cancel/register race |
+| Public API and OpenAPI | 3 | Search, pagination bounds, Swagger/bearer contract |
+| **Total** | **28** | **0 failures in the verified CI run** |
+
+GitHub Actions also validates Compose and builds the runtime image after Maven verification.
+
+## Design choices and tradeoffs
+
+- **Database lock instead of JVM lock:** works across multiple API instances, at the cost of serializing mutations for the same workshop.
+- **Monotonic waitlist sequence:** cancelled sequence numbers are not reused. Positions are calculated from active earlier sequences, keeping FIFO deterministic without renumbering rows.
+- **One registration row per student/workshop:** cancelled rows are reactivated, preserving uniqueness and audit continuity.
+- **HS256 JWTs:** appropriate for this single service and simple local deployment. A multi-service system would usually use asymmetric keys, rotation, and a dedicated identity provider.
+- **Explicit public page DTO:** avoids exposing unstable Spring `Page` serialization details to clients.
+
+## Current limitations
+
+- No frontend, email/push notifications, calendar integration, or attendance tracking.
+- No JWT refresh, revocation list, rate limiting, or account-recovery flow.
+- No deployment manifest or public hosted environment; Docker Compose is for local/review use.
+- No full audit-event table; timestamps and registration-row reactivation provide only basic history.
+- Search uses PostgreSQL string matching, not full-text search.
+
+These are deliberate boundaries for a focused backend project. Future work should be driven by a real requirement rather than added only to increase the technology list.
