@@ -1,6 +1,6 @@
 # CampusQueue
 
-CampusQueue is a Spring Boot REST API for limited-capacity university workshops. Organizers manage workshop lifecycles and rosters; students receive a confirmed seat or enter a deterministic FIFO waitlist. Cancellations and registrations remain capacity-safe under concurrent requests because PostgreSQL—not a JVM-only lock—is the serialization boundary.
+CampusQueue is a Spring Boot REST API for limited-capacity university workshops. Organizers manage workshop lifecycles and rosters; students receive a confirmed seat or enter a deterministic FIFO waitlist. Cancellations and registrations remain capacity-safe under concurrent requests because PostgreSQL, rather than a JVM-only lock, is the serialization boundary.
 
 ## Verified project facts
 
@@ -13,7 +13,7 @@ CampusQueue is a Spring Boot REST API for limited-capacity university workshops.
 - **28 integration tests** passed in GitHub Actions against a real PostgreSQL Testcontainer.
 - The concurrency scenario ran five times; each run processed 20 students over eight threads and produced exactly **3 confirmed + 17 waitlisted** registrations for a capacity-three workshop.
 
-The verified implementation is on `feat/campusqueue-v2`. The original dependency-free prototype remains available at commit [`da512f1`](https://github.com/Achintya-Narula/campus-queue/tree/da512f1d03b219c931a365fec956c8aa3de1e1c0).
+The verified implementation is on the default `main` branch. The original dependency-free prototype remains available at commit [`da512f1`](https://github.com/Achintya-Narula/campus-queue/tree/da512f1d03b219c931a365fec956c8aa3de1e1c0).
 
 ## Architecture
 
